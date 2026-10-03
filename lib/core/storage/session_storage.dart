@@ -26,13 +26,13 @@ typedef BeforeAtomicCommit = Future<void> Function(
 class SessionStorage {
   SessionStorage({
     DocumentsDirectoryProvider? documentsDirectoryProvider,
-    @visibleForTesting BeforeAtomicCommit? beforeAtomicCommit,
+    this.beforeAtomicCommit,
   })  : _documentsDirectoryProvider =
-            documentsDirectoryProvider ?? getApplicationDocumentsDirectory,
-        _beforeAtomicCommit = beforeAtomicCommit;
+            documentsDirectoryProvider ?? getApplicationDocumentsDirectory;
 
   final DocumentsDirectoryProvider _documentsDirectoryProvider;
-  final BeforeAtomicCommit? _beforeAtomicCommit;
+  @visibleForTesting
+  final BeforeAtomicCommit? beforeAtomicCommit;
 
   Future<String> get _localPath async {
     final directory = await _documentsDirectoryProvider();
@@ -52,7 +52,7 @@ class SessionStorage {
     );
     try {
       await temp.writeAsString(jsonEncode(json), flush: true);
-      await _beforeAtomicCommit?.call(temp, target);
+      await beforeAtomicCommit?.call(temp, target);
       await temp.rename(target.path);
     } finally {
       if (await temp.exists()) {
