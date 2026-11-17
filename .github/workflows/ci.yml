@@ -3,6 +3,7 @@
 # PR / master push / workflow_dispatch で実行
 # Gemini APIキー不要（Mock fallbackで動作）
 # 注意: debug APKは開発確認用。ストア公開用ではない。
+# Temporary compatibility pin for issue #50; migrate imports to material_ui separately.
 
 name: CI
 
@@ -26,6 +27,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
+          flutter-version: '3.47.9'
           channel: stable
 
       - name: Setup Java
