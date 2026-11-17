@@ -7,15 +7,20 @@ import 'package:kore_no_kae_dore/features/history/history_screen.dart';
 
 class FakeStorage extends PurchaseResultStorage {
   final List<PurchaseResult> results;
-  FakeStorage(this.results);
+  final Object? listError;
+
+  FakeStorage(this.results, {this.listError});
 
   @override
-  Future<List<PurchaseResult>> listResults() async => results;
+  Future<List<PurchaseResult>> listResults() async {
+    if (listError != null) throw listError!;
+    return results;
+  }
 
   @override
   Future<PurchaseResult?> loadResult(String id) async {
     try {
-      return results.firstWhere((r) => r.id == id);
+      return results.firstWhere((result) => result.id == id);
     } catch (_) {
       return null;
     }
@@ -83,6 +88,25 @@ void main() {
 
       final tiles = find.byType(ExpansionTile);
       expect(tiles, findsNWidgets(2));
+    });
+
+    testWidgets('一部の保存ファイルが壊れている場合は警告し、読めた履歴を表示する', (tester) async {
+      final partial = _makeResult(id: 'r1', title: '保存済み商品');
+      final storage = FakeStorage(
+        [],
+        listError: PurchaseResultStorageReadException(
+          fileName: 'broken.json',
+          cause: const FormatException('invalid JSON'),
+          partialResults: [partial],
+        ),
+      );
+
+      await tester.pumpWidget(_wrap(HistoryScreen(storage: storage)));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('broken.json'), findsOneWidget);
+      expect(find.text('保存済み商品'), findsOneWidget);
+      expect(find.text('履歴がありません'), findsNothing);
     });
   });
 }
