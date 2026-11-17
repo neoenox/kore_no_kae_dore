@@ -6,14 +6,37 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/purchase_result.dart';
 
+typedef DocumentsDirectoryProvider = Future<Directory> Function();
+
+class PurchaseResultStorageReadException implements Exception {
+  const PurchaseResultStorageReadException({
+    required this.fileName,
+    required this.cause,
+    this.partialResults = const <PurchaseResult>[],
+  });
+
+  final String fileName;
+  final Object cause;
+  final List<PurchaseResult> partialResults;
+
+  @override
+  String toString() => 'Failed to read purchase result file "$fileName": $cause';
+}
+
 class PurchaseResultStorage {
+  PurchaseResultStorage({
+    DocumentsDirectoryProvider? documentsDirectoryProvider,
+  }) : _documentsDirectoryProvider =
+           documentsDirectoryProvider ?? getApplicationDocumentsDirectory;
+
+  final DocumentsDirectoryProvider _documentsDirectoryProvider;
+
   Future<String> get _localPath async {
-    final directory = await getApplicationDocumentsDirectory();
+    final directory = await _documentsDirectoryProvider();
     final resultsDir = Directory('${directory.path}/results');
     if (!await resultsDir.exists()) {
       await resultsDir.create(recursive: true);
@@ -43,17 +66,26 @@ class PurchaseResultStorage {
     }
   }
 
-  Future<PurchaseResult?> loadResult(String id) async {
+  Future<PurchaseResult> _readResult(File file) async {
     try {
-      final path = await _localPath;
-      final file = File('$path/$id.json');
-      if (!await file.exists()) return null;
-      final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-      return PurchaseResult.fromJson(json);
-    } catch (e) {
-      debugPrint('PurchaseResultStorage.loadResult: $e');
-      return null;
+      final decoded = jsonDecode(await file.readAsString());
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Expected a JSON object');
+      }
+      return PurchaseResult.fromJson(decoded);
+    } catch (error) {
+      throw PurchaseResultStorageReadException(
+        fileName: file.uri.pathSegments.last,
+        cause: error,
+      );
     }
+  }
+
+  Future<PurchaseResult?> loadResult(String id) async {
+    final path = await _localPath;
+    final file = File('$path/$id.json');
+    if (!await file.exists()) return null;
+    return _readResult(file);
   }
 
   Future<PurchaseResult?> loadResultForSession(String sessionId) async {
@@ -65,27 +97,31 @@ class PurchaseResultStorage {
   }
 
   Future<List<PurchaseResult>> listResults() async {
-    try {
-      final path = await _localPath;
-      final dir = Directory(path);
-      if (!await dir.exists()) return [];
-      final files = await dir.list().where((e) => e.path.endsWith('.json')).toList();
-      final results = <PurchaseResult>[];
-      for (final file in files) {
-        try {
-          final json = jsonDecode(
-            await File(file.path).readAsString(),
-          ) as Map<String, dynamic>;
-          results.add(PurchaseResult.fromJson(json));
-        } catch (e) {
-          debugPrint('PurchaseResultStorage.listResults: skipping $file ($e)');
-        }
+    final path = await _localPath;
+    final dir = Directory(path);
+    if (!await dir.exists()) return [];
+
+    final files = await dir
+        .list()
+        .where((entity) => entity is File && entity.path.endsWith('.json'))
+        .cast<File>()
+        .toList();
+    files.sort((a, b) => a.path.compareTo(b.path));
+
+    final results = <PurchaseResult>[];
+    for (final file in files) {
+      try {
+        results.add(await _readResult(file));
+      } on PurchaseResultStorageReadException catch (error) {
+        throw PurchaseResultStorageReadException(
+          fileName: error.fileName,
+          cause: error.cause,
+          partialResults: List<PurchaseResult>.unmodifiable(results),
+        );
       }
-      results.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      return results;
-    } catch (e) {
-      debugPrint('PurchaseResultStorage.listResults: $e');
-      return [];
     }
+
+    results.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return results;
   }
 }
